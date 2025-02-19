@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat with Ollama</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0/css/materialize.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #343541;
+            color: white;
+            flex-direction: column;
+            font-family: Arial, sans-serif;
+        }
+        .container {
+            width: 50%;
+            text-align: center;
+        }
+        .chat-box {
+            background: #444654;
+            padding: 20px;
+            border-radius: 10px;
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        input {
+            width: calc(100% - 80px);
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            outline: none;
+            background: #555;
+            color: #f1f1f1;
+        }
+        button {
+            padding: 10px 15px;
+            background: #10a37f;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>Chat with Local Ollama</h3>
+        <div class="chat-box" id="chatBox"></div>
+        <div>
+            <input type="text" id="textInput" placeholder="Type a message..." onkeypress="handleKeyPress(event)">
+            <button onclick="callAPI()">Send</button>
+        </div>
+    </div>
+    
+    <script>
+        function callAPI() {
+            const text = document.getElementById('textInput').value;
+            if (!text.trim()) return;
+            
+            const chatBox = document.getElementById('chatBox');
+            chatBox.innerHTML += `<p><strong>You:</strong> ${text}</p>`;
+            document.getElementById('textInput').value = '';
+            
+            fetch('/call_api', {
+                method: 'POST',
+                body: new URLSearchParams({ 'text': text }),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            })
+            .then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let messageElement = document.createElement("p");
+                let isFirstChunk = true;
+                chatBox.appendChild(messageElement);
+                
+                function readStream() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) return;
+                        
+                        let chunk = decoder.decode(value, { stream: true }).trim();
+                        try {
+                            let lines = chunk.split('\n');
+                            lines.forEach(line => {
+                                line = line.trim();
+                                if (line.startsWith('{')) { // Ensure it's JSON before parsing
+                                    let jsonData = JSON.parse(line);
+                                    if (jsonData && jsonData.response) {
+                                        if (isFirstChunk) {
+                                            messageElement.innerHTML = `<strong>Ollama:</strong> `; // Append only once
+                                            isFirstChunk = false;
+                                        }
+                                        messageElement.innerHTML += jsonData.response + " ";
+                                    }
+                                }
+                            });
+                        } catch (error) {
+                            console.error("Error parsing JSON:", error);
+                        }
+                        chatBox.scrollTop = chatBox.scrollHeight;
+                        readStream();
+                    });
+                }
+                
+                readStream();
+            })
+            .catch(error => console.error('Error:', error));
+        }
+        
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault(); // Prevent new lines in input
+                callAPI();
+            }
+        }
+    </script>
+</body>
+</html>
